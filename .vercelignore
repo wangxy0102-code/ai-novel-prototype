@@ -1,0 +1,9 @@
+
+# Vercel Ignore
+.next
+node_modules
+.git
+.gemini
+/Users/ypp/.Trash
+.DS_Store
+*.log
