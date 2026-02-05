@@ -9,7 +9,7 @@ export const runtime = 'edge';
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json() as AIGenerationRequest;
-        const { worldState, previousChapter, userSuggestion, provider: requestedProvider } = body;
+        const { worldState, previousChapter, userSuggestion, provider: requestedProvider, isTestMode } = body;
 
         // 检查API配置
         const apiConfig = checkAPIConfig();
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
             worldState,
             previousChapter,
             userSuggestion,
+            isTestMode,
         });
 
         let generatedText = '';

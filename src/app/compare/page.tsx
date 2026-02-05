@@ -4,9 +4,17 @@ import { useStoryStore } from '@/lib/store';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
+import React from 'react';
 
 export default function ComparePage() {
-    const { archive, originalStory, isOriginalStoryLoaded, originalStoryComment } = useStoryStore();
+    const {
+        archive,
+        originalStory,
+        isOriginalStoryLoaded,
+        originalStoryComment,
+        fateComparisonSummary,
+        setFateComparisonSummary
+    } = useStoryStore();
 
     const hasCustomStory = archive && archive.chapters.length > 2;
     const currentWorldState = hasCustomStory
@@ -18,6 +26,66 @@ export default function ComparePage() {
     const originalEndState = originalStory.length > 0
         ? originalStory[originalStory.length - 1].worldStateSnapshot
         : null;
+
+    const [isGeneratingComparison, setIsGeneratingComparison] = React.useState(false);
+
+    // 自动生成命运对比
+    React.useEffect(() => {
+        const generateComparison = async () => {
+            // 触发条件：
+            // 1. 从未生成过 (!fateComparisonSummary)
+            // 2. 生成过，但是是旧版文案 (包含"在命运的干涉下") -> 自动重刷
+            // 3. 生成过，但是包含严重的幻觉词汇 (如"删除"、"漏洞"、"未命名主角") -> 自动重刷
+            const isLegacySummary = fateComparisonSummary && (
+                fateComparisonSummary.includes('在命运的干涉下') ||
+                fateComparisonSummary.includes('删除') ||
+                fateComparisonSummary.includes('漏洞') ||
+                fateComparisonSummary.includes('【未命名主角】') ||
+                fateComparisonSummary.includes('【你】') ||
+                fateComparisonSummary.includes('数据') ||
+                fateComparisonSummary.includes('代码')
+            );
+
+            if (hasCustomStory && isStoryEnded && isOriginalStoryLoaded && originalStory.length > 0) {
+                if (!fateComparisonSummary || isLegacySummary) {
+                    await handleRegenerateComparison();
+                }
+            }
+        };
+        generateComparison();
+    }, [hasCustomStory, isStoryEnded, isOriginalStoryLoaded, fateComparisonSummary, originalStory]);
+
+    const handleRegenerateComparison = async () => {
+        if (!archive) return;
+
+        setIsGeneratingComparison(true);
+        // 提取摘要
+        const originalSummary = originalStoryComment || (originalStory.length > 0 ? originalStory[originalStory.length - 1].content : '');
+        const actualSummary = archive.storyComment || (archive.chapters.length > 0 ? archive.chapters[archive.chapters.length - 1].content : '');
+
+        // 提取世界背景和主角名
+        const firstChapterState = archive.chapters[0]?.worldStateSnapshot;
+        const genre = firstChapterState?.rules.join(',') || '';
+
+        // 尝试从状态中获取主角名
+        const protagonistName = firstChapterState?.protagonistStatus?.name || '主角';
+
+        try {
+            const res = await fetch('/api/compare-fate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ originalSummary, actualSummary, genre, protagonistName }),
+            });
+            const data = await res.json();
+            if (data.comparison) {
+                setFateComparisonSummary(data.comparison);
+            }
+        } catch (err) {
+            console.error('Failed to generate comparison:', err);
+        } finally {
+            setIsGeneratingComparison(false);
+        }
+    };
 
     return (
         <div className="min-h-screen bg-black">
@@ -61,14 +129,28 @@ export default function ComparePage() {
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
-                            className="text-center mb-12"
+                            className="text-center mb-12 relative group"
                         >
-                            <h1 className="text-4xl font-bold text-white mb-4">
-                                你的故事 vs 原定命运
-                            </h1>
-                            <p className="text-gray-400">
-                                观察你的选择如何改变了世界的走向
-                            </p>
+
+
+                            <div className="min-h-[80px] flex items-center justify-center relative">
+                                {isGeneratingComparison ? (
+                                    <div className="flex items-center gap-2 text-purple-400 animate-pulse">
+                                        <div className="w-5 h-5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                                        <span>命运推演中...</span>
+                                    </div>
+                                ) : fateComparisonSummary ? (
+                                    <div className="relative group/text max-w-4xl mx-auto">
+                                        <p className="text-xl md:text-2xl text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-pink-200 font-serif leading-relaxed px-4 text-center cursor-default">
+                                            "{fateComparisonSummary}"
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <p className="text-gray-500 animate-pulse">
+                                        正在推演命运的分歧点...
+                                    </p>
+                                )}
+                            </div>
                         </motion.div>
 
                         {/* 对比区域 */}

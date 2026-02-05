@@ -19,6 +19,7 @@ interface StoryStore {
         worldRules: string[];
         protagonist: { name: string; occupation: string; powers: string[] };
         antagonist: { name: string; goal: string };
+        isTestMode?: boolean; // 新增：标记是否为测试模式
     } | null;
 
     // 预生成的完整剧情缓存（用于用户自定义剧情预生成）
@@ -69,7 +70,12 @@ interface StoryStore {
     rewindToChapter: (chapterId: number) => void;
 
     // 设置故事点评
+    // 设置故事点评
     setStoryComment: (comment: string) => void;
+
+    // 命运对比总结
+    fateComparisonSummary?: string;
+    setFateComparisonSummary: (summary: string) => void;
 }
 
 // 从种子内容加载初始世界状态
@@ -101,6 +107,7 @@ export const useStoryStore = create<StoryStore>()(
             cacheNextIndex: 0,
             originalStory: [],
             isOriginalStoryLoaded: false,
+            fateComparisonSummary: undefined,
 
             initializeStory: () => {
                 const newArchive: StoryArchive = {
@@ -121,6 +128,7 @@ export const useStoryStore = create<StoryStore>()(
                     cacheNextIndex: 0,
                     originalStory: [],
                     isOriginalStoryLoaded: false,
+                    fateComparisonSummary: undefined,
                 });
             },
 
@@ -183,6 +191,7 @@ export const useStoryStore = create<StoryStore>()(
                     cacheNextIndex: 0,
                     originalStory: seedOriginalChapters,
                     isOriginalStoryLoaded: false, // 仍需后续生成完整剧情
+                    fateComparisonSummary: undefined,
                 });
             },
 
@@ -286,7 +295,7 @@ export const useStoryStore = create<StoryStore>()(
             },
 
             resetStory: () => {
-                set({ archive: null, cachedStory: [], cacheNextIndex: 0, originalStory: [], isOriginalStoryLoaded: false });
+                set({ archive: null, cachedStory: [], cacheNextIndex: 0, originalStory: [], isOriginalStoryLoaded: false, fateComparisonSummary: undefined });
             },
 
             setCachedStory: (chapters: Chapter[]) => {
@@ -355,6 +364,15 @@ export const useStoryStore = create<StoryStore>()(
                             ...state.archive,
                             storyComment: comment,
                         },
+                    };
+                });
+            },
+
+            // 设置命运对比总结
+            setFateComparisonSummary: (summary: string) => {
+                set((state: StoryStore) => {
+                    return {
+                        fateComparisonSummary: summary
                     };
                 });
             },

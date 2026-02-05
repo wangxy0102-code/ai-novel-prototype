@@ -72,6 +72,7 @@ export interface AIGenerationRequest {
   previousChapter: Chapter;
   userSuggestion: string;
   provider?: 'openai' | 'anthropic';
+  isTestMode?: boolean;
 }
 
 export interface AIGenerationResponse {

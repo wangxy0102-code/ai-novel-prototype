@@ -140,7 +140,8 @@ export default function StoryPage() {
                     body: JSON.stringify({
                         worldState: seedWorldState,
                         previousChapter: lastSeedChapter,
-                        userSuggestion: '按正常路线发展，揭露公司真相，国家干预，灵能时代终结', // 保持原有的原定剧情走向prompt
+                        userSuggestion: '按当前世界观逻辑正常推演结局，保持风格一致', // 移除硬编码的“公司/灵能”剧情
+                        isTestMode: storeState.customStoryData?.isTestMode // 传递测试模式标记
                     }),
                 });
 
@@ -220,6 +221,7 @@ export default function StoryPage() {
                     worldState,
                     previousChapter: lastChapter,
                     userSuggestion: userSuggestion || '继续发展剧情',
+                    isTestMode: useStoryStore.getState().customStoryData?.isTestMode,
                 }),
             });
 
@@ -290,9 +292,13 @@ export default function StoryPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    worldState,
+                    worldState: {
+                        ...worldState,
+                        mainPlotStatus: 'active' // 强制设为进行中，确保AI继续生成
+                    },
                     previousChapter: lastChapter,
                     userSuggestion: userSuggestion || '按正常路线发展',
+                    isTestMode: useStoryStore.getState().customStoryData?.isTestMode,
                 }),
             });
 
@@ -302,11 +308,25 @@ export default function StoryPage() {
                 throw new Error(data.error || '生成失败');
             }
 
+            // --- 修复重复剧情 Bug ---
+            // 检查生成的第一个章节是否与上一章内容重复（AI有时会复述上下文）
+            let rawChapters = data.chapters;
+            if (rawChapters.length > 0 && lastChapter) {
+                const firstGenContent = rawChapters[0].content.trim();
+                const lastContent = lastChapter.content.trim();
+
+                // 如果内容完全一致，或者重合度极高（>80%），则认为是复述
+                if (firstGenContent === lastContent || (firstGenContent.length > 10 && lastContent.includes(firstGenContent))) {
+                    console.log('检测到重复剧情，自动过滤第一章:', firstGenContent.substring(0, 20) + '...');
+                    rawChapters = rawChapters.slice(1);
+                }
+            }
+
             // 将解析后的章节转换为完整的 Chapter 对象
             const baseChapterId = currentArchive.chapters.length;
             let currentState = worldState;
 
-            const fullChapters: Chapter[] = data.chapters.map((parsed: { title: string; content: string; tags: string[] }, index: number) => {
+            const fullChapters: Chapter[] = rawChapters.map((parsed: { title: string; content: string; tags: string[] }, index: number) => {
                 const chapterId = baseChapterId + index + 1;
                 const isEnding = parsed.tags.includes('结局') || parsed.tags.includes('终章');
 
@@ -402,7 +422,16 @@ export default function StoryPage() {
 
     const chapters = archive?.chapters || [];
     const currentWorldState = chapters.length > 0 ? chapters[chapters.length - 1].worldStateSnapshot : null;
-    const isStoryEnded = currentWorldState?.mainPlotStatus === 'completed' || currentWorldState?.mainPlotStatus === 'broken';
+
+    // 判定故事是否结束：
+    // 1. worldStatus 为 completed 或 broken
+    // 2. 或者最新章节包含 '结局' 或 '终章' 标签 (双重保险)
+    const lastChapterTags = chapters.length > 0 ? chapters[chapters.length - 1].metadata.tags : [];
+    const isStoryEnded = currentWorldState?.mainPlotStatus === 'completed' ||
+        currentWorldState?.mainPlotStatus === 'broken' ||
+        lastChapterTags.includes('结局') ||
+        lastChapterTags.includes('终章');
+
     const hasCache = cachedStory.length > 0 && cacheNextIndex < cachedStory.length;
     const remainingCached = cachedStory.length - cacheNextIndex;
 
@@ -614,7 +643,7 @@ export default function StoryPage() {
                                 className="bg-gray-900 rounded-2xl p-8 border border-gray-800 text-center"
                             >
                                 <h3 className="text-white font-semibold text-xl mb-4">
-                                    {currentWorldState?.mainPlotStatus === 'completed' ? '命运终局' : '因果断裂'}
+                                    {currentWorldState?.mainPlotStatus === 'broken' ? '因果断裂' : '命运终局'}
                                 </h3>
 
                                 <p className="text-gray-400 mb-6 text-sm leading-relaxed italic">

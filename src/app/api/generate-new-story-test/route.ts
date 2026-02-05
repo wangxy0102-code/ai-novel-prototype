@@ -1,19 +1,16 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import { buildGenerationPrompt, parseAIResponse, checkAPIConfig } from '@/lib/ai/prompts';
-import type { AIGenerationRequest, AIGenerationResponse } from '@/lib/types';
+import { buildNewStoryTestPrompt, parseNewStoryResponse, checkAPIConfig } from '@/lib/ai/prompts';
 
 export const runtime = 'edge';
 
 export async function POST(req: NextRequest) {
     try {
-        const body = await req.json() as AIGenerationRequest;
-        const { worldState, previousChapter, userSuggestion, provider: requestedProvider, isTestMode } = body;
-
         // 检查API配置
         const apiConfig = checkAPIConfig();
-        const provider = requestedProvider || apiConfig.provider;
+        const provider = apiConfig.provider;
 
         if (!provider) {
             return NextResponse.json(
@@ -25,13 +22,17 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // 构建 Prompt
-        const prompt = buildGenerationPrompt({
-            worldState,
-            previousChapter,
-            userSuggestion,
-            isTestMode,
-        });
+        // 获取请求体中的 genre 参数
+        let genre: string | undefined;
+        try {
+            const body = await req.json();
+            genre = body.genre;
+        } catch (e) {
+            // body is empty or invalid, ignore
+        }
+
+        // 构建新故事测试版 prompt
+        const prompt = buildNewStoryTestPrompt(genre);
 
         let generatedText = '';
 
@@ -46,15 +47,15 @@ export async function POST(req: NextRequest) {
                 messages: [
                     {
                         role: 'system',
-                        content: '你是一位擅长极简叙事的AI作家，必须将复杂的剧情浓缩为一句话概括（类似于“xxx遇到了xxx事，选择xxx方式解决”）。',
+                        content: '你是一位擅长创作极简微小说的AI作家，所有输出必须严格遵循JSON格式。',
                     },
                     {
                         role: 'user',
                         content: prompt,
                     },
                 ],
-                temperature: 0.85,
-                max_tokens: 2000,
+                temperature: 0.9,
+                response_format: { type: "json_object" },
             });
 
             generatedText = completion.choices[0]?.message?.content || '';
@@ -66,9 +67,9 @@ export async function POST(req: NextRequest) {
 
             const message = await anthropic.messages.create({
                 model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022',
-                max_tokens: 2000,
-                temperature: 0.85,
-                system: '你是一位擅长极简叙事的AI作家，必须将复杂的剧情浓缩为一句话概括（类似于“xxx遇到了xxx事，选择xxx方式解决”）。',
+                max_tokens: 4000,
+                temperature: 0.9,
+                system: '你是一位擅长创作极简微小说的AI作家，所有输出必须严格遵循JSON格式。',
                 messages: [
                     {
                         role: 'user',
@@ -79,8 +80,8 @@ export async function POST(req: NextRequest) {
 
             const textContent = message.content.find(block => block.type === 'text');
             generatedText = textContent && 'text' in textContent ? textContent.text : '';
+
         } else if (provider === 'deepseek') {
-            // DeepSeek 使用 OpenAI 兼容的 API
             const deepseek = new OpenAI({
                 apiKey: process.env.DEEPSEEK_API_KEY,
                 baseURL: 'https://api.deepseek.com',
@@ -91,15 +92,15 @@ export async function POST(req: NextRequest) {
                 messages: [
                     {
                         role: 'system',
-                        content: '你是一位擅长极简叙事的AI作家，必须将复杂的剧情浓缩为一句话概括（类似于“xxx遇到了xxx事，选择xxx方式解决”）。',
+                        content: '你是一位擅长创作极简微小说的AI作家，所有输出必须严格遵循JSON格式。',
                     },
                     {
                         role: 'user',
                         content: prompt,
                     },
                 ],
-                temperature: 0.85,
-                max_tokens: 2000,
+                temperature: 0.9,
+                response_format: { type: "json_object" },
             });
 
             generatedText = completion.choices[0]?.message?.content || '';
@@ -107,31 +108,39 @@ export async function POST(req: NextRequest) {
 
         if (!generatedText) {
             return NextResponse.json(
-                { error: 'Failed to generate content from AI' },
+                { error: 'Failed to generate story from AI' },
                 { status: 500 }
             );
         }
 
-        // 解析AI响应
-        const parsed = parseAIResponse(generatedText);
+        // 解析新故事响应
+        const storyData = parseNewStoryResponse(generatedText);
 
-        const response: AIGenerationResponse = {
-            chapterTitle: parsed.title,
-            content: parsed.content,
-            worldStateChanges: parsed.stateChanges,
-            tags: parsed.tags,
-            rawGeneratedText: generatedText,
-        };
+        if (!storyData) {
+            return NextResponse.json(
+                {
+                    error: 'Failed to parse AI response',
+                    rawResponse: generatedText
+                },
+                { status: 500 }
+            );
+        }
 
-        return NextResponse.json(response);
+        return NextResponse.json({
+            story: {
+                ...storyData,
+                initialChapters: storyData.initialChapters,
+                isTestMode: true // 标记为测试模式
+            }
+        });
 
     } catch (error: any) {
-        console.error('AI Generation Error:', error);
+        console.error('New Story Test Generation Error:', error);
 
         return NextResponse.json(
             {
-                error: error.message || 'Failed to generate chapter',
-                details: error.toString(),
+                error: error.message || 'Failed to generate new story',
+                details: error.toString()
             },
             { status: 500 }
         );
